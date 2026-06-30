@@ -1,0 +1,1 @@
+the first thing i should do is try to get some good camera controls.I feel thats what will kep me motivated
