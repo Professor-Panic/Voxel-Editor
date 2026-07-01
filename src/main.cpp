@@ -8,15 +8,26 @@ struct Voxel{
     int index;
     Color color=RED;
 };
+void DrawVoxel(Voxel& voxel,BoundingBox bbox,Vector3 gridDimensions,Vector3 voxelSize){
+    int x = voxel.index % (int)gridDimensions.x;
+    int y = (voxel.index / (int)gridDimensions.x) % (int)gridDimensions.y;
+    int z = voxel.index / (int)(gridDimensions.x * gridDimensions.y);
+    Vector3 pos;
+    pos.x = bbox.min.x + (x + 0.5f) * voxelSize.x;
+    pos.y = bbox.min.y + (y + 0.5f) * voxelSize.y;
+    pos.z = bbox.min.z + (z + 0.5f) * voxelSize.z;
+
+    DrawCube(pos, voxelSize.x, voxelSize.y, voxelSize.z, voxel.color);
+}
 int main(){
-    int gridX=64;
-    int gridY=64;
-    int gridZ=64;
+    int gridX=32;
+    int gridY=32;
+    int gridZ=32;
     int mode=0;
     std::vector<Voxel>voxels;
     std::vector<bool>occupied_indices(64*64*64);
 
-    InitWindow(1200,800,"Voxel Editor");
+    InitWindow(1920,1080,"Voxel Editor");
     Camera3D cam;
     cam.position={0,5,5};
     cam.target={0,0,0};
@@ -36,17 +47,17 @@ int main(){
     bbox.max={2.5,2.5,2.5};
 
     bbox.min={-2.5,-2.5,-2.5};
-
+    Vector4 curPallete={0,0,0,1};
     //voxel bounds
 
-    float voxelSizeX=abs(bbox.max.x-bbox.min.x)/gridX;
-    float voxelSizeY=abs(bbox.max.y-bbox.min.y)/gridY;
-    float voxelSizeZ=abs(bbox.max.z-bbox.min.z)/gridZ;
+    Vector3 voxelSize={abs(bbox.max.x-bbox.min.x)/gridX,
+                      abs(bbox.max.y-bbox.min.y)/gridY,
+                      abs(bbox.max.z-bbox.min.z)/gridZ};
 
     rlImGuiSetup(true);
 
     SetTargetFPS(60);
-
+    ToggleFullscreen();
     while(!WindowShouldClose()){
         //Camera Scrolling
         if(GetMouseWheelMoveV().y>0){
@@ -96,31 +107,34 @@ int main(){
             cam.target += drag;
         }
         Ray mouseRay=GetScreenToWorldRay(GetMousePosition(),cam);
-        RayCollision mousehit=GetRayCollisionBox(mouseRay,bbox);    
+        RayCollision mousehit=GetRayCollisionBox(mouseRay,bbox);  
+        Voxel hoverVoxel;
+        hoverVoxel.color=RAYWHITE; 
         //Form A ray using the forward direction of the cam
-        if(IsMouseButtonDown(MOUSE_BUTTON_LEFT)){
-             //If you hit form a cube there
+        //If you hit form a cube there
+        if(mousehit.hit){
+            Vector3 forward=Vector3Normalize(Vector3Subtract(cam.target, cam.position));
+            float dot=Vector3DotProduct(forward,mousehit.normal);
+            //if the dot product is negative it means you face roughly in the opposite direction 
+            // maybe you want to place the voxels inside the cube 
+            if(dot<0.0f){
+                Ray insideRay;
+                insideRay.position=mousehit.point+(mouseRay.direction*0.01);
+                insideRay.direction=mouseRay.direction;
+                mousehit=GetRayCollisionBox(insideRay,bbox);
                 if(mousehit.hit){
-                Vector3 forward=Vector3Normalize(Vector3Subtract(cam.target, cam.position));
-                float dot=Vector3DotProduct(forward,mousehit.normal);
-                //if the dot product is negative it means you face roughly in the opposite direction 
-                // maybe you want to place the voxels inside the cube 
-                if(dot<0.0f){
-                    Ray insideRay;
-                    insideRay.position=mousehit.point+mouseRay.direction*2.0;
-                    insideRay.direction=mouseRay.direction;
-                    mousehit=GetRayCollisionBox(insideRay,bbox);
-                    if(mousehit.hit){
-                        Vector3 normPos=(mousehit.point-bbox.min)/(bbox.max-bbox.min);
-                        int x = Clamp((int)floorf(normPos.x * gridX), 0, gridX - 1);
-                        int y = Clamp((int)floorf(normPos.y * gridY), 0, gridY - 1);
-                        int z = Clamp((int)floorf(normPos.z * gridZ), 0, gridZ - 1);
-                        int index = x + y * gridX + z * gridX * gridY;
+                    Vector3 normPos=(mousehit.point-bbox.min)/(bbox.max-bbox.min);
+                    int x = Clamp((int)floorf(normPos.x * gridX), 0, gridX - 1);
+                    int y = Clamp((int)floorf(normPos.y * gridY), 0, gridY - 1);
+                    int z = Clamp((int)floorf(normPos.z * gridZ), 0, gridZ - 1);
+                    int index = x + y * gridX + z * gridX * gridY;
+                    hoverVoxel.index=index;
+                    if(IsMouseButtonDown(MOUSE_BUTTON_LEFT)){
                         if(mode==0){
                             if(!occupied_indices[index]){
                                 occupied_indices[index]=true;
                                 Voxel v;
-                                v.index=index;
+                                v.index=hoverVoxel.index;
                                 voxels.push_back(v);
                             }
                         }
@@ -134,11 +148,19 @@ int main(){
                                     }));
                             }
                         }
-                        
+                        else if(mode==2){
+                            if(occupied_indices[index]){
+                                for(Voxel&v:voxels){
+                                    if(v.index==index){
+                                        v.color=ColorFromNormalized(curPallete);
+                                    }
+                                }
+                            }
+                        }
                     }
+                    
                 }
             }
-
         }
         if(IsKeyPressed(KEY_R)){
             voxels.clear();
@@ -149,24 +171,19 @@ int main(){
         if(IsKeyPressed(KEY_T)){
             mode=0;
         }
+         if(IsKeyPressed(KEY_P)){
+            mode=2;
+        }
         BeginDrawing();
         BeginMode3D(cam);
-        ClearBackground(BLACK);
+        ClearBackground({10,10,10,255});
         DrawBoundingBox(bbox,WHITE);
-        //If you did hit something first check what face you hit
         for(auto&voxel:voxels){
-            int x = voxel.index % gridX;
-            int y = (voxel.index / gridX) % gridY;
-            int z = voxel.index / (gridX * gridY);
-
-            Vector3 pos;
-            pos.x = bbox.min.x + (x + 0.5f) * voxelSizeX;
-            pos.y = bbox.min.y + (y + 0.5f) * voxelSizeY;
-            pos.z = bbox.min.z + (z + 0.5f) * voxelSizeZ;
-
-            DrawCube(pos, voxelSizeX, voxelSizeY, voxelSizeZ, voxel.color);
+           DrawVoxel(voxel,bbox,{(float)gridX,(float)gridY,(float)gridZ},voxelSize);
         }
-        Vector3 normPos=(mousehit.point-bbox.min)/(bbox.max-bbox.min);   
+        if(mousehit.hit){
+            DrawVoxel(hoverVoxel,bbox,{(float)gridX,(float)gridY,(float)gridZ},voxelSize);
+        }
         EndMode3D();
         rlImGuiBegin();
         ImGui::Begin("Cam Controls");
@@ -174,9 +191,10 @@ int main(){
         ImGui::SliderFloat3("Camera Controls",&cam.position.x,-5,5);
         ImGui::Text(TextFormat("Pitch: %.3f",pitch));
         ImGui::Text(TextFormat("Yaw: %.3f",yaw));
-        
         ImGui::End();
         ImGui::Begin("Box Controls");
+        ImGui::ColorPicker4("Current Color: ",&curPallete.x);
+        ImGui::ColorButton("Color",ImVec4(curPallete.x,curPallete.y,curPallete.z,curPallete.w));
         ImGui::End();
         rlImGuiEnd();
         EndDrawing();
